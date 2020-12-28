@@ -9,13 +9,21 @@ from torchvision import transforms
 import torchvision
 from models import *
 
+if torch.cuda.is_available():
+    device = 'cuda'
+else:
+    device = 'cpu'
+    
 def train(net, trainloader, optimizer, criterion ,numEpochs):
+    net.train()
     for epoch in range(numEpochs):  # loop over the dataset multiple times
         running_loss = 0.0
         for i, data in enumerate(trainloader, 0):
             # get the inputs; data is a list of [inputs, labels]
             inputs, labels = data
-
+            inputs = inputs.to(device)
+            labels = labels.to(device)
+            
             # zero the parameter gradients
             optimizer.zero_grad()
 
@@ -35,11 +43,15 @@ def train(net, trainloader, optimizer, criterion ,numEpochs):
     print('Finished Training')
 
 def test(net, testloader):
+    net.eval()
     correct = 0
     total = 0
     with torch.no_grad():
         for data in testloader:
             images, labels = data
+            images = images.to(device)
+            labels = labels.to(device)
+            
             outputs = net(images)
             _, predicted = torch.max(outputs.data, 1)
             total += labels.size(0)
@@ -72,7 +84,7 @@ def main(args):
     # classes = ('plane', 'car', 'bird', 'cat',
     #         'deer', 'dog', 'frog', 'horse', 'ship', 'truck')
 
-    numEpochs = 20
+    numEpochs = 120
     hidden_sizes = [1000, 500, 100, 10]
     num_classes = 10
     image_dim = 96 * 96 * 3
@@ -80,34 +92,40 @@ def main(args):
     
     if args.net == 'LR':
         #Logistic Regression net
-        logistic_regression_net = LogisticRegression(image_dim, num_classes)
+        logistic_regression_net = LogisticRegression(image_dim, num_classes, device)
         optimizer = optim.SGD(logistic_regression_net.parameters(), lr=0.001, momentum=0.9)
         train(logistic_regression_net, trainloader, optimizer, criterion, numEpochs)
         test(logistic_regression_net, testloader)
     elif args.net == 'FC3':
         #FullyConnected 3Hidden Layers+Dropout+BN
-        fc_net = FC3_Net(image_dim, num_classes)
+        fc_net = FC3_Net(image_dim, num_classes, device)
         optimizer = optim.SGD(fc_net.parameters(), lr=0.001, momentum=0.9)
         train(fc_net, trainloader, optimizer, criterion, numEpochs)
         test(fc_net, testloader)
     elif args.net == 'CNN':
         #CNN with 2 Conv layers
-        cnn_net = CNN_Net(image_dim, num_classes)
+        cnn_net = CNN_Net(image_dim, num_classes, device)
         optimizer = optim.SGD(cnn_net.parameters(), lr=0.001, momentum=0.9)
         train(cnn_net, trainloader, optimizer, criterion, numEpochs)
         test(cnn_net, testloader)
     elif args.net =='ResNet18_fine_tune':
         #ResNet18 Fine Tuning of all the paramters of the net
-        resnet18_fine_tuning = PreTrained_ResNet18(hidden_sizes, num_classes)
+        resnet18_fine_tuning = PreTrained_ResNet18(hidden_sizes, num_classes, False, device)
         resnet18_fine_tuning.apply(init_weights)
-        optimizer = optim.SGD(resnet18_fine_tuning.parameters(), lr=0.001, momentum=0.9)
+        params_to_update = resnet18_fine_tuning.parameters()
+        # Observe that all parameters are being optimized
+        optimizer = optim.SGD(params_to_update, lr=0.001, momentum=0.9)
         train(resnet18_fine_tuning, trainloader, optimizer, criterion, numEpochs)
         test(resnet18_fine_tuning, testloader)
     elif args.net == 'ResNet18_feature_extractor':
         #ResNet18 as only a feature extractor
-        resnet18_feature_extractor_only = PreTrained_ResNet18(hidden_sizes, num_classes)
+        resnet18_feature_extractor_only = PreTrained_ResNet18(hidden_sizes, num_classes, True, device)
         resnet18_feature_extractor_only.apply(init_weights)
-        optimizer = optim.SGD(resnet18_feature_extractor_only.net.parameters(), lr=0.001, momentum=0.9)
+        params_to_update = []
+        for name,param in resnet18_feature_extractor_only.named_parameters():
+            if param.requires_grad == True:
+                params_to_update.append(param)
+        optimizer = optim.SGD(params_to_update, lr=0.01, momentum=0.9)
         train(resnet18_feature_extractor_only, trainloader, optimizer, criterion, numEpochs)
         test(resnet18_feature_extractor_only, testloader)
     else:
