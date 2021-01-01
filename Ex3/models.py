@@ -13,17 +13,18 @@ from torchvision import models
 
 
 class LogisticRegression(nn.Module):
-    def __init__(self, input_dim, output_dim):
+    def __init__(self, input_dim, output_dim, device):
         super(LogisticRegression, self).__init__()
         self.linear = nn.Linear(input_dim, output_dim)
-
+        if device == 'cuda':
+            self.cuda()
     def forward(self, x):
         x = x.view(x.shape[0], -1)
         outputs = self.linear(x)
         return outputs
 
 class FC3_Net(nn.Module):
-    def __init__(self, input_dim, output_dim):
+    def __init__(self, input_dim, output_dim, device):
         super(FC3_Net, self).__init__()
 
         self.model = nn.Sequential(
@@ -48,14 +49,16 @@ class FC3_Net(nn.Module):
             #Last later
             nn.Linear(100, output_dim),
         )
-
+        if device == 'cuda':
+            self.cuda()
+            
     def forward(self, x):
         
         x = x.view(x.shape[0], -1)
         return self.model(x)
 
 class CNN_Net(nn.Module):
-    def __init__(self, input_dim, output_dim):
+    def __init__(self, input_dim, output_dim, device):
         super(CNN_Net, self).__init__()
 
         self.conv1 = nn.Conv2d(3, 6, 5)
@@ -65,7 +68,9 @@ class CNN_Net(nn.Module):
 
         self.pool = nn.MaxPool2d(2, 2)
         self.fc = nn.Linear(16 * 21 * 21, output_dim)
-
+        if device == 'cuda':
+            self.cuda()
+            
     def forward(self, x, evalMode=False):
         x = self.pool(F.relu(self.bn1(self.conv1(x))))
         x = self.pool(F.relu(self.bn2(self.conv2(x))))
@@ -73,7 +78,7 @@ class CNN_Net(nn.Module):
         return self.fc(x)
 
 class PreTrained_ResNet18(nn.Module):
-    def __init__(self, hidden_sizes, output_dim):
+    def __init__(self, hidden_sizes, output_dim, feature_extract, device):
         super(PreTrained_ResNet18, self).__init__()
         self.feature_extractor = models.resnet18(pretrained=True)
         self.hidden_sizes = hidden_sizes
@@ -86,10 +91,19 @@ class PreTrained_ResNet18(nn.Module):
 
         self.layers.append(nn.Linear(hidden_sizes[-1], output_dim))
         self.net = nn.Sequential(*self.layers)
-
+        
+        if feature_extract:
+            for param in self.feature_extractor.parameters():
+                param.require_grad = False
+                
+        num_ftrs = self.feature_extractor.fc.in_features
+        self.feature_extractor.fc = nn.Linear(num_ftrs, output_dim)
+        
+        if device == 'cuda':
+            self.cuda()
+            
     def forward(self, x, evalMode=False):
-        features = self.feature_extractor(x)
-        output = self.net(features)
+        output = self.feature_extractor(x)
         return output
 
 def init_weights(m):
