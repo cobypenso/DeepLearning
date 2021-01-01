@@ -67,14 +67,15 @@ class CNN_Net(nn.Module):
         self.bn2 = nn.BatchNorm2d(16)
 
         self.pool = nn.MaxPool2d(2, 2)
-        self.fc = nn.Linear(16 * 21 * 21, output_dim)
+        self.fc = nn.Linear(16 * 5 * 5, output_dim)
         if device == 'cuda':
             self.cuda()
             
     def forward(self, x, evalMode=False):
         x = self.pool(F.relu(self.bn1(self.conv1(x))))
         x = self.pool(F.relu(self.bn2(self.conv2(x))))
-        x = x.view(-1, 16 * 21 * 21)
+        
+        x = x.view(-1, 16 * 5 * 5)
         return self.fc(x)
 
 class PreTrained_ResNet18(nn.Module):

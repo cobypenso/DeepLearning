@@ -9,6 +9,7 @@ import torch
 from torchvision import transforms
 import torchvision
 from models import *
+import pandas as pd  
 
 use_cuda = torch.cuda.is_available()
 seed = 42
@@ -84,49 +85,56 @@ def get_loaders(train_transform, test_transform, batch_size):
                                             download=True, transform=train_transform)
     trainset, validset = split_train_and_val(trainset, 0.8)
     trainloader = torch.utils.data.DataLoader(trainset, batch_size=batch_size,
-                                            shuffle=True, num_workers=1)
+                                            shuffle=True, num_workers=0)
     validloader = torch.utils.data.DataLoader(validset, batch_size=batch_size,
-                                            shuffle=True, num_workers=1)
+                                            shuffle=True, num_workers=0)
     testset = torchvision.datasets.STL10(root='./data', split='test',
                                         download=True, transform=test_transform)
     testloader = torch.utils.data.DataLoader(testset, batch_size=batch_size,
-                                            shuffle=False, num_workers=1)
+                                            shuffle=False, num_workers=0)
     
     return trainloader, validloader, testloader
 
-def get_optimizer(model_params, optimizer_type, lr, weight_decay):
+def get_optimizer(model, optimizer_type, lr, weight_decay):
 
+    params_to_update = []
+    for name,param in model.named_parameters():
+        if param.requires_grad == True:
+            params_to_update.append(param)
+    
     if optimizer_type == 'SGD':
-        optimizer = optim.SGD(model_params, lr=lr, momentum=0.9, weight_decay=weight_decay)
+        optimizer = optim.SGD(params_to_update, lr=lr, momentum=0.9)
     elif optimizer_type == 'Adam':
-        optimizer = optim.Adam(model_params, lr=lr, betas=(0.9, 0.999), weight_decay=weight_decay)
+        optimizer = optim.Adam(params_to_update, lr=lr, betas=(0.9, 0.999), weight_decay=weight_decay)
     elif optimizer_type == 'RMSProp':
-        optimizer = optim.Adam(model_params, lr=lr, alpha=0.99, eps=1e-08, weight_decay=weight_decay)
+        optimizer = optim.RMSProp(params_to_update, lr=lr, alpha=0.99, eps=1e-08, weight_decay=weight_decay)
     else:
         NotImplementedError("optimizer not implemented")
     return optimizer
 
-def hyperparam_search(net, net_params_to_learn, criterion, train_transform, test_transform):
+def hyperparam_search(net, criterion, train_transform, test_transform):
     
     numEpochs = 60
 
     results = []
     for lr in [0.01, 0.001]:
-        for bt in [16, 64, 128]:
-            for wd in [0.01, 0.001]:
-                for opt_type in ['SGD', 'Adam', 'RMSProp']:
-                    optimizer = get_optimizer(net_params_to_learn, opt_type, lr, weight_decay=wd)
+        for bt in [32, 64, 128]:
+            for wd in [0]:
+                for opt_type in ['SGD']:
+                    net.apply(init_weights)
+                    optimizer = get_optimizer(net, opt_type, lr, weight_decay=wd)
                     trainloader, validloader, testloader = get_loaders(train_transform, test_transform, bt)
                     
                     train_loss, valid_accuracy = train(net, trainloader, validloader, optimizer, criterion, numEpochs)
                     test_accuracy = test(net, testloader)
-
+                    print(test_accuracy)
                     results.append({'lr': lr,
                                     'wd': wd,
                                     'bt': bt,
                                     'optimizer_type': opt_type,
                                     'loss': train_loss,
                                     'test_accuracy': test_accuracy})
+    return results
 
 
 ###########################################
@@ -162,49 +170,57 @@ def main(args):
     
     if args.net == 'LR':
         #Logistic Regression net
-        logistic_regression_net = LogisticRegression(image_dim, num_classes)
+        logistic_regression_net = LogisticRegression(image_dim, num_classes, device)
         hyperparam_search(logistic_regression_net,
-                          logistic_regression_net.parameters(), 
                           criterion,
                           train_transform, test_transform)
     elif args.net == 'FC3':
         #FullyConnected 3Hidden Layers+Dropout+BN
         fc_net = FC3_Net(image_dim, num_classes, device)
         optimizer = optim.SGD(fc_net.parameters(), lr=0.001, momentum=0.9)
-        train(fc_net, trainloader, optimizer, criterion, numEpochs)
+        trainloader, validloader, testloader = get_loaders(train_transform, test_transform, 32)
+        train(fc_net, trainloader, validloader, optimizer, criterion, numEpochs = 100)
         test(fc_net, testloader)
     elif args.net == 'CNN':
         #CNN with 2 Conv layers
         cnn_net = CNN_Net(image_dim, num_classes, device)
-        optimizer = optim.SGD(cnn_net.parameters(), lr=0.001, momentum=0.9)
-        train(cnn_net, trainloader, optimizer, criterion, numEpochs)
-        test(cnn_net, testloader)
+        
+        hyperparam_search(cnn_net,
+                          criterion,
+                          train_transform, test_transform)
     elif args.net =='ResNet18_fine_tune':
         #ResNet18 Fine Tuning of all the paramters of the net
         resnet18_fine_tuning = PreTrained_ResNet18(hidden_sizes, num_classes, False, device)
         resnet18_fine_tuning.apply(init_weights)
         params_to_update = resnet18_fine_tuning.parameters()
         # Observe that all parameters are being optimized
-        optimizer = optim.SGD(params_to_update, lr=0.001, momentum=0.9)
-        train(resnet18_fine_tuning, trainloader, optimizer, criterion, numEpochs)
-        test(resnet18_fine_tuning, testloader)
+        results = hyperparam_search(resnet18_fine_tuning,
+                          criterion,
+                          train_transform, test_transform)
+        df = pd.DataFrame(results)
+        df.to_csv('ResNet18_fine_tune_60_epochs_summary.csv') 
+
     elif args.net == 'ResNet18_feature_extractor':
         #ResNet18 as only a feature extractor
         resnet18_feature_extractor_only = PreTrained_ResNet18(hidden_sizes, num_classes, True, device)
         resnet18_feature_extractor_only.apply(init_weights)
-        params_to_update = []
-        for name,param in resnet18_feature_extractor_only.named_parameters():
-            if param.requires_grad == True:
-                params_to_update.append(param)
-        optimizer = optim.SGD(params_to_update, lr=0.01, momentum=0.9)
-        train(resnet18_feature_extractor_only, trainloader, optimizer, criterion, numEpochs)
-        test(resnet18_feature_extractor_only, testloader)
+        #params_to_update = []
+        #for name,param in resnet18_feature_extractor_only.named_parameters():
+        #    if param.requires_grad == True:
+        #        params_to_update.append(param)
+        #optimizer = optim.SGD(params_to_update, lr=0.01, momentum=0.9)
+        #trainloader, validloader, testloader = get_loaders(train_transform, test_transform, 32)
+        #train(resnet18_feature_extractor_only, trainloader, validloader, optimizer, criterion, numEpochs = 100)
+        #print(test(resnet18_feature_extractor_only, testloader))
+        results = hyperparam_search(resnet18_feature_extractor_only,
+                          criterion,
+                          train_transform, test_transform)
     else:
         raise NotImplementedError
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Neural Network")
-    parser.add_argument("--net", default="LR", type=str, choices=['LR', 'FC3', 'CNN','ResNet18_fine_tune', 'ResNet18_feature_extractor'])
+    parser.add_argument("--net", default="ResNet18_feature_extractor", type=str, choices=['LR', 'FC3', 'CNN','ResNet18_fine_tune', 'ResNet18_feature_extractor'])
     parser.add_argument("--optimizer_type", default="SGD", type=str, choices=['SGD', 'Adam', 'RMSProp'])
     parser.add_argument("--visualize", default=False, type=bool)
     args = parser.parse_args()
