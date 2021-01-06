@@ -1,0 +1,5 @@
+LR - 30.325
+FC3 - 44.8
+CNN - 52.8375
+Fine Tune - 61.775
+Feature Extractor - 60.0125

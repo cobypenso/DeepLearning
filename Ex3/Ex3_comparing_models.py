@@ -227,7 +227,7 @@ def main(args):
         optimizer = get_optimizer(net, opt_type, lr, weight_decay=wd)
         trainloader, validloader, testloader = get_loaders(train_transform, test_transform, batch_size)
         train_loss, valid_loss = train(net, trainloader, validloader, optimizer, criterion, numEpochs)
-        test_accuracy = test(net, testloader)
+        test_accuracy, _ = test(net, testloader, criterion)
 
         plt.figure()       
         # Plot both train and test loss on the same figure
@@ -239,6 +239,8 @@ def main(args):
         plt.grid(True)
         # Save the plot as a png image
         plt.savefig('train&valid_loss_'+args.net+'.png')
+        
+        print (test_accuracy)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Neural Network")
