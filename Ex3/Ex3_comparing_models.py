@@ -51,13 +51,10 @@ def train(net, trainloader, validloader, optimizer, criterion ,numEpochs):
 
             # print statistics
             running_loss += loss.item()
-            train_loss = running_loss
-            if i % 10 == 0:    # print every 2000 mini-batches
-                print('[%d, %5d] loss: %.3f' %
-                    (epoch + 1, i + 1, running_loss / 10))
-                running_loss = 0.0
             # test on validation dataset
+        train_loss = running_loss / i
         valid_acc = test(net, validloader)
+        print ("epoch: " + str(epoch) + " valid accuracy: " + str(valid_acc) + " train loss: " + str(train_loss))
 
     print('Finished Training')
     return train_loss, valid_acc
@@ -101,7 +98,6 @@ def get_optimizer(model, optimizer_type, lr, weight_decay):
     for name,param in model.named_parameters():
         if param.requires_grad == True:
             params_to_update.append(param)
-    
     if optimizer_type == 'SGD':
         optimizer = optim.SGD(params_to_update, lr=lr, momentum=0.9)
     elif optimizer_type == 'Adam':
@@ -114,13 +110,13 @@ def get_optimizer(model, optimizer_type, lr, weight_decay):
 
 def hyperparam_search(net, criterion, train_transform, test_transform):
     
-    numEpochs = 60
+    numEpochs = 200
 
     results = []
     for lr in [0.01, 0.001]:
         for bt in [32, 64, 128]:
-            for wd in [0]:
-                for opt_type in ['SGD']:
+            for wd in [0, 0.01]:
+                for opt_type in ['SGD', 'Adam']:
                     net.apply(init_weights)
                     optimizer = get_optimizer(net, opt_type, lr, weight_decay=wd)
                     trainloader, validloader, testloader = get_loaders(train_transform, test_transform, bt)
@@ -162,7 +158,6 @@ def main(args):
                                             download=True, transform=train_transform)
         visualize(trainset, 4)
 
-    numEpochs = 120
     hidden_sizes = [1000, 500, 100, 10]
     num_classes = 10
     image_dim = 32 * 32 * 3
@@ -171,52 +166,44 @@ def main(args):
     if args.net == 'LR':
         #Logistic Regression net
         logistic_regression_net = LogisticRegression(image_dim, num_classes, device)
-        hyperparam_search(logistic_regression_net,
+        results = hyperparam_search(logistic_regression_net,
                           criterion,
                           train_transform, test_transform)
+                          
     elif args.net == 'FC3':
         #FullyConnected 3Hidden Layers+Dropout+BN
         fc_net = FC3_Net(image_dim, num_classes, device)
-        optimizer = optim.SGD(fc_net.parameters(), lr=0.001, momentum=0.9)
-        trainloader, validloader, testloader = get_loaders(train_transform, test_transform, 32)
-        train(fc_net, trainloader, validloader, optimizer, criterion, numEpochs = 100)
-        test(fc_net, testloader)
+        results = hyperparam_search(fc_net,
+                          criterion,
+                          train_transform, test_transform)
+        
     elif args.net == 'CNN':
         #CNN with 2 Conv layers
         cnn_net = CNN_Net(image_dim, num_classes, device)
-        
-        hyperparam_search(cnn_net,
+        results = hyperparam_search(cnn_net,
                           criterion,
                           train_transform, test_transform)
+                          
     elif args.net =='ResNet18_fine_tune':
         #ResNet18 Fine Tuning of all the paramters of the net
         resnet18_fine_tuning = PreTrained_ResNet18(hidden_sizes, num_classes, False, device)
         resnet18_fine_tuning.apply(init_weights)
-        params_to_update = resnet18_fine_tuning.parameters()
-        # Observe that all parameters are being optimized
         results = hyperparam_search(resnet18_fine_tuning,
                           criterion,
                           train_transform, test_transform)
-        df = pd.DataFrame(results)
-        df.to_csv('ResNet18_fine_tune_60_epochs_summary.csv') 
 
     elif args.net == 'ResNet18_feature_extractor':
         #ResNet18 as only a feature extractor
         resnet18_feature_extractor_only = PreTrained_ResNet18(hidden_sizes, num_classes, True, device)
         resnet18_feature_extractor_only.apply(init_weights)
-        #params_to_update = []
-        #for name,param in resnet18_feature_extractor_only.named_parameters():
-        #    if param.requires_grad == True:
-        #        params_to_update.append(param)
-        #optimizer = optim.SGD(params_to_update, lr=0.01, momentum=0.9)
-        #trainloader, validloader, testloader = get_loaders(train_transform, test_transform, 32)
-        #train(resnet18_feature_extractor_only, trainloader, validloader, optimizer, criterion, numEpochs = 100)
-        #print(test(resnet18_feature_extractor_only, testloader))
         results = hyperparam_search(resnet18_feature_extractor_only,
                           criterion,
                           train_transform, test_transform)
     else:
         raise NotImplementedError
+
+    df = pd.DataFrame(results)
+    df.to_csv(args.net + '60_epochs_summary.csv')
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Neural Network")
