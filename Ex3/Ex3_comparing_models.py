@@ -122,7 +122,33 @@ def get_optimizer(model, optimizer_type, lr, weight_decay):
     else:
         NotImplementedError("optimizer not implemented")
     return optimizer
+    
+def hidden_size_search(criterion, train_transform, test_transform):
 
+    numEpochs = 200
+    num_classes = 10
+    image_dim = 32 * 32 * 3
+    # Set the parameters and change the hidden_size only.
+    bt = 32
+    lr = 0.01
+    wd = 0
+    opt_type = 'Adam'   
+
+    results = []
+    for hidden_sizes in [[1000, 500, 100, 10], [1000, 500, 200, 10], [1000, 500, 50, 10], [1000, 700, 100, 10], [1000, 300, 100, 10]]:
+                    net = PreTrained_ResNet18(hidden_sizes, num_classes, True, device)
+                    net.apply(init_weights)
+                    optimizer = get_optimizer(net, opt_type, lr, weight_decay=wd)
+                    trainloader, validloader, testloader = get_loaders(train_transform, test_transform, bt)
+                    
+                    train_loss, valid_loss = train(net, trainloader, validloader, optimizer, criterion, numEpochs)
+                    test_accuracy, _ = test(net, testloader, criterion)
+                    print(test_accuracy)
+                    results.append({'hidden_size': hidden_sizes,
+                                    'loss': train_loss[-1],
+                                    'test_accuracy': test_accuracy})
+    return results
+    
 def hyperparam_search(net, criterion, train_transform, test_transform):
     
     numEpochs = 200
@@ -178,6 +204,11 @@ def main(args):
     image_dim = 32 * 32 * 3
     criterion = nn.CrossEntropyLoss()
     
+    if args.resnet_hidden_size_search:
+        results = hidden_size_search(criterion, train_transform, test_transform)
+        df = pd.DataFrame(results)
+        df.to_csv('ResNet18_hidden_size_summary.csv')
+        
     if args.net == 'LR':
         #Logistic Regression net
         net = LogisticRegression(image_dim, num_classes, device)
@@ -247,7 +278,8 @@ if __name__ == "__main__":
     parser.add_argument("--net", default="ResNet18_feature_extractor", type=str, choices=['LR', 'FC3', 'CNN','ResNet18_fine_tune', 'ResNet18_feature_extractor'])
     parser.add_argument("--optimizer_type", default="SGD", type=str, choices=['SGD', 'Adam', 'RMSProp'])
     parser.add_argument("--visualize", default=False, type=bool)
-    parser.add_argument("--train_best_model", default=True, type=bool)
+    parser.add_argument("--train_best_model", default=False, type=bool)
     parser.add_argument("--hyper_parameter_search", default=False, type=bool)
+    parser.add_argument("--resnet_hidden_size_search", default=True, type=bool)
     args = parser.parse_args()
     main(args)
