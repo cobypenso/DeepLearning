@@ -1,4 +1,5 @@
 # Coby Penso, 208254128
+from os import name
 import matplotlib.pyplot as plt
 import numpy as np
 from numpy.testing._private.utils import break_cycles

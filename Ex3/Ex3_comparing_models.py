@@ -1,7 +1,5 @@
 # Coby Penso, 208254128
 import numpy as np
-from numpy.core import numeric
-from numpy.core.fromnumeric import size
 import pandas as pd
 import matplotlib.pyplot as plt
 from utils import *
@@ -10,7 +8,6 @@ import torch
 from torchvision import transforms
 import torchvision
 from models import *
-import pandas as pd  
 
 use_cuda = torch.cuda.is_available()
 seed = 42
@@ -28,6 +25,18 @@ torch.backends.cudnn.deterministic = True
 device = torch.device("cuda" if use_cuda else "cpu")
 
 def train(net, trainloader, validloader, optimizer, criterion ,numEpochs):
+    '''
+        Ttrain the model.
+
+        @param: net - net to test
+        @param: trainloader - the loader of the train dataset
+        @param: validloader - the loader of the valid dataset
+        @param: optimizer - the optimizer to use to opt the loss
+        @param: criterion - the criteria in which the loss is calculated
+        @param: numEpochs - the number of epochs to train the model
+
+        @returns: train loss list +  test loss list (list of the size of the number of epochs)
+    '''
     train_loss_list = []
     valid_loss_list = []
     train_loss = 0
@@ -67,6 +76,15 @@ def train(net, trainloader, validloader, optimizer, criterion ,numEpochs):
     return train_loss_list, valid_loss_list
 
 def test(net, testloader, criterion):
+    '''
+        Test the model.
+
+        @param: net - net to test
+        @param: testloader - the loader of the test dataset
+        @param: criterion - the criteria in which the loss is calculated
+
+        @returns: test accuracy +  test loss
+    '''
     net.eval()
     correct = 0
     total = 0
@@ -93,6 +111,16 @@ def test(net, testloader, criterion):
     return (100 * correct / total), test_loss
 
 def get_loaders(train_transform, test_transform, batch_size):
+    '''
+        Get the loaders - train, valid and test loaders
+
+        @param: train_transform - train transform to apply on the train dataset
+        @param: test_transform - test transform to apply on the test dataset
+        @param: batch_size - batch size
+
+        @returns: trainloader, validloader, testloader
+    '''
+    # Train and valid
     trainset = torchvision.datasets.STL10(root='./data', split='train',
                                             download=True, transform=train_transform)
     trainset, validset = split_train_and_val(trainset, 0.8)
@@ -100,6 +128,8 @@ def get_loaders(train_transform, test_transform, batch_size):
                                             shuffle=True, num_workers=0)
     validloader = torch.utils.data.DataLoader(validset, batch_size=batch_size,
                                             shuffle=True, num_workers=0)
+
+    # Test
     testset = torchvision.datasets.STL10(root='./data', split='test',
                                         download=True, transform=test_transform)
     testloader = torch.utils.data.DataLoader(testset, batch_size=batch_size,
@@ -108,7 +138,16 @@ def get_loaders(train_transform, test_transform, batch_size):
     return trainloader, validloader, testloader
 
 def get_optimizer(model, optimizer_type, lr, weight_decay):
+    '''
+        Get the optimizer
 
+        @param: model to apply the optimizer on his params
+        @param: optimizer_type - the type of the optimizer
+        @param: lr - learning rate
+        @param: weight_decay - regularizer coeff
+
+        @returns: the optimizer
+    '''
     params_to_update = []
     for name,param in model.named_parameters():
         if param.requires_grad == True:
@@ -118,16 +157,25 @@ def get_optimizer(model, optimizer_type, lr, weight_decay):
     elif optimizer_type == 'Adam':
         optimizer = optim.Adam(params_to_update, lr=lr, betas=(0.9, 0.999), weight_decay=weight_decay)
     elif optimizer_type == 'RMSProp':
-        optimizer = optim.RMSProp(params_to_update, lr=lr, alpha=0.99, eps=1e-08, weight_decay=weight_decay)
+        optimizer = optim.Adam(params_to_update, lr=lr, alpha=0.99, eps=1e-08, weight_decay=weight_decay)
     else:
         NotImplementedError("optimizer not implemented")
     return optimizer
     
 def hidden_size_search(criterion, train_transform, test_transform):
+    '''
+        Hidden sizes search - given the resnet18 net, search which hidden sizes achieve the best result
+
+        @param: criterion - the criteria in which the loss is calculated
+        @param: train_transform - transform to apply on training data
+        @param: test_transform - transform to apply on test data
+
+        @returns: List of dictionaries that contain the summary of training the model
+                  with the different hidden sizes
+    '''
 
     numEpochs = 200
     num_classes = 10
-    image_dim = 32 * 32 * 3
     # Set the parameters and change the hidden_size only.
     bt = 32
     lr = 0.01
@@ -136,13 +184,19 @@ def hidden_size_search(criterion, train_transform, test_transform):
 
     results = []
     for hidden_sizes in [[1000, 500, 100, 10], [1000, 500, 200, 10], [1000, 500, 50, 10], [1000, 700, 100, 10], [1000, 300, 100, 10]]:
+                    # Init the restnet18 net
                     net = PreTrained_ResNet18(hidden_sizes, num_classes, True, device)
                     net.apply(init_weights)
+
+                    # Get the optimizer and the loaders
                     optimizer = get_optimizer(net, opt_type, lr, weight_decay=wd)
                     trainloader, validloader, testloader = get_loaders(train_transform, test_transform, bt)
-                    
+
+                    # Train and test the current model
                     train_loss, valid_loss = train(net, trainloader, validloader, optimizer, criterion, numEpochs)
                     test_accuracy, _ = test(net, testloader, criterion)
+
+                    # Save the results
                     print(test_accuracy)
                     results.append({'hidden_size': hidden_sizes,
                                     'loss': train_loss[-1],
@@ -150,20 +204,36 @@ def hidden_size_search(criterion, train_transform, test_transform):
     return results
     
 def hyperparam_search(net, criterion, train_transform, test_transform):
-    
+    '''
+        Hyper paramerters search (grid search)
+        @param: net - the model to run search on
+        @param: criterion - the criteria in which the loss is calculated
+        @param: train_transform - transform to apply on training data
+        @param: test_transform - transform to apply on test data
+
+        @returns: List of dictionaries that contain the summary of training the model
+                  with the different hyperparams
+    '''
     numEpochs = 200
 
     results = []
+
     for lr in [0.01, 0.001]:
         for bt in [32, 64, 128]:
             for wd in [0, 0.01]:
                 for opt_type in ['SGD', 'Adam']:
+                    # Apply init on the weights of the model
                     net.apply(init_weights)
+
+                    # Get the optimizer and the train+valid+test dataloaders
                     optimizer = get_optimizer(net, opt_type, lr, weight_decay=wd)
                     trainloader, validloader, testloader = get_loaders(train_transform, test_transform, bt)
-                    
+
+                    # Train the model and then test it on the test data
                     train_loss, valid_loss = train(net, trainloader, validloader, optimizer, criterion, numEpochs)
                     test_accuracy, _ = test(net, testloader, criterion)
+
+                    # Save the gathered results of the current trained model
                     print(test_accuracy)
                     results.append({'lr': lr,
                                     'wd': wd,
@@ -222,14 +292,16 @@ def main(args):
         batch_size = 64
         lr = 0.001
         wd = 0
-        opt_type = 'Adam'            
+        opt_type = 'Adam'      
+        print ('Total number of learnable params in FC3: ', calc_number_params(net))      
     elif args.net == 'CNN':
         #CNN with 2 Conv layers
         net = CNN_Net(image_dim, num_classes, device)
         batch_size = 32
         lr = 0.01
         wd = 0.01
-        opt_type = 'SGD'       
+        opt_type = 'SGD'
+        print ('Total number of learnable params in CNN: ', calc_number_params(net))   
     elif args.net =='ResNet18_fine_tune':
         #ResNet18 Fine Tuning of all the paramters of the net
         net = PreTrained_ResNet18(hidden_sizes, num_classes, False, device)
@@ -275,11 +347,11 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Neural Network")
-    parser.add_argument("--net", default="ResNet18_feature_extractor", type=str, choices=['LR', 'FC3', 'CNN','ResNet18_fine_tune', 'ResNet18_feature_extractor'])
+    parser.add_argument("--net", default="FC3", type=str, choices=['LR', 'FC3', 'CNN','ResNet18_fine_tune', 'ResNet18_feature_extractor'])
     parser.add_argument("--optimizer_type", default="SGD", type=str, choices=['SGD', 'Adam', 'RMSProp'])
     parser.add_argument("--visualize", default=False, type=bool)
     parser.add_argument("--train_best_model", default=False, type=bool)
     parser.add_argument("--hyper_parameter_search", default=False, type=bool)
-    parser.add_argument("--resnet_hidden_size_search", default=True, type=bool)
+    parser.add_argument("--resnet_hidden_size_search", default=False, type=bool)
     args = parser.parse_args()
     main(args)

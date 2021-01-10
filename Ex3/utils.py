@@ -63,3 +63,22 @@ def upload_model(file):
     file = open(file, "rb")
     dict = pickle.load(file)
     return dict
+
+def calc_number_params(model):
+    '''
+        Calculate the number of params to be learned in the given model
+
+        @param: model
+
+        @returns: number of params in the model
+    '''
+    count = 0
+    for name, param in model.named_parameters():
+        if param.requires_grad:
+            count_specific_param = np.prod(param.size())
+            if param.dim() > 1:
+                print('Layer - ',name, ':', 'x'.join(str(x) for x in list(param.size())), '=', count_specific_param)
+            else:
+                print ('Later - ', name, ':', count_specific_param)
+            count += count_specific_param
+    return count
